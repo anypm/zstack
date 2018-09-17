@@ -5023,7 +5023,6 @@ public class VmInstanceBase extends AbstractVmInstance {
         return spec;
     }
 
-
     protected void rebootVm(final Message msg, final Completion completion) {
         refreshVO();
         ErrorCode allowed = validateOperationByState(msg, self.getState(), null);
