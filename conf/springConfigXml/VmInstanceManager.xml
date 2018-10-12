@@ -88,6 +88,7 @@
         <property name="detachIsoWorkFlowElements">
             <list>
                 <value>org.zstack.compute.vm.DetachIsoOnHypervisorFlow</value>
+                <value>org.zstack.compute.vm.DetachIsoOnPrimaryStorageFlow</value>
             </list>
         </property>
         <property name="expungeVmWorkFlowElements">
