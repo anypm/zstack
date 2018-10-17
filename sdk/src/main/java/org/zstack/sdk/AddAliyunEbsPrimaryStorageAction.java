@@ -34,6 +34,9 @@ public class AddAliyunEbsPrimaryStorageAction extends AbstractAction {
     @Param(required = false, validValues = {"io7","io8"}, nonempty = false, nullElements = false, emptyString = true, noTrim = false)
     public java.lang.String defaultIoType;
 
+    @Param(required = true, nonempty = false, nullElements = false, emptyString = true, noTrim = false)
+    public java.lang.String tdcConfigContent;
+
     @Param(required = true, maxLength = 2048, nonempty = false, nullElements = false, emptyString = true, noTrim = false)
     public java.lang.String url;
 
