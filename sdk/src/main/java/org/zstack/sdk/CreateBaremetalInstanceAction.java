@@ -46,9 +46,6 @@ public class CreateBaremetalInstanceAction extends AbstractAction {
     @Param(required = false, validValues = {"InstantStart","JustCreate"}, nonempty = false, nullElements = false, emptyString = true, noTrim = false)
     public java.lang.String strategy = "InstantStart";
 
-    @Param(required = false, nonempty = false, nullElements = false, emptyString = true, noTrim = false)
-    public java.lang.String pxeServerUuid;
-
     @Param(required = false)
     public java.lang.String resourceUuid;
 
