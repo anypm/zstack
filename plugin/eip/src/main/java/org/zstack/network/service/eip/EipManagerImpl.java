@@ -220,18 +220,41 @@ public class EipManagerImpl extends AbstractService implements EipManager, VipRe
             return new ArrayList<>();
         }
 
-        List<VmNicVO> nics  = SQL.New("select distinct nic" +
-                " from VmNicVO nic, VmInstanceVO vm, UsedIpVO ip" +
-                " where nic.uuid = ip.vmNicUuid and ip.l3NetworkUuid in (:l3Uuids)" +
-                " and nic.vmInstanceUuid = vm.uuid and ip.ipVersion = :ipVersion" +
-                " and vm.type = :vmType and vm.state in (:vmStates) " +
-                // IP = null means the VM is just recovered without any IP allocated
-                " and nic.ip is not null")
-                .param("l3Uuids", l3Uuids)
-                .param("vmType", VmInstanceConstant.USER_VM_TYPE)
-                .param("vmStates", EipConstant.attachableVmStates)
-                .param("ipVersion", l3Vo.getIpVersion())
-                .list();
+        /* get all vm which has nic in vip public l3 */
+        List<String> vmInPublicL3s = SQL.New("select distinct nic.vmInstanceUuid from UsedIpVO ip, VmNicVO nic" +
+                " where nic.uuid = ip.vmNicUuid and ip.l3NetworkUuid = :pubL3")
+                .param("pubL3", vip.getL3NetworkUuid()).list();
+        vmInPublicL3s = vmInPublicL3s.stream().distinct().filter(uuid -> uuid != null).collect(Collectors.toList());
+
+        List<VmNicVO> nics;
+        if (vmInPublicL3s != null && !vmInPublicL3s.isEmpty()) {
+            nics = SQL.New("select distinct nic" +
+                    " from VmNicVO nic, VmInstanceVO vm, UsedIpVO ip" +
+                    " where nic.uuid = ip.vmNicUuid and ip.l3NetworkUuid in (:l3Uuids)" +
+                    " and nic.vmInstanceUuid = vm.uuid and ip.ipVersion = :ipVersion" +
+                    " and vm.type = :vmType and vm.state in (:vmStates) " +
+                    // IP = null means the VM is just recovered without any IP allocated
+                    " and nic.ip is not null and vm.uuid not in (:vmInPublicL3s)")
+                    .param("l3Uuids", l3Uuids)
+                    .param("vmType", VmInstanceConstant.USER_VM_TYPE)
+                    .param("vmStates", EipConstant.attachableVmStates)
+                    .param("ipVersion", l3Vo.getIpVersion())
+                    .param("vmInPublicL3s", vmInPublicL3s)
+                    .list();
+        } else {
+            nics = SQL.New("select distinct nic" +
+                    " from VmNicVO nic, VmInstanceVO vm, UsedIpVO ip" +
+                    " where nic.uuid = ip.vmNicUuid and ip.l3NetworkUuid in (:l3Uuids)" +
+                    " and nic.vmInstanceUuid = vm.uuid and ip.ipVersion = :ipVersion" +
+                    " and vm.type = :vmType and vm.state in (:vmStates) " +
+                    // IP = null means the VM is just recovered without any IP allocated
+                    " and nic.ip is not null")
+                    .param("l3Uuids", l3Uuids)
+                    .param("vmType", VmInstanceConstant.USER_VM_TYPE)
+                    .param("vmStates", EipConstant.attachableVmStates)
+                    .param("ipVersion", l3Vo.getIpVersion())
+                    .list();
+        }
         return VmNicInventory.valueOf(nics);
     }
 
@@ -663,7 +686,7 @@ public class EipManagerImpl extends AbstractService implements EipManager, VipRe
                     public void run(FlowTrigger trigger, Map data) {
                         ModifyVipAttributesStruct struct = new ModifyVipAttributesStruct();
                         struct.setUseFor(EipConstant.EIP_NETWORK_SERVICE_TYPE);
-                        struct.setPeerL3NetworkUuid(nicInventory.getL3NetworkUuid());
+                        struct.setPeerL3NetworkUuid(guestIp.getL3NetworkUuid());
                         struct.setServiceProvider(providerType.toString());
                         Vip vip = new Vip(vipInventory.getUuid());
                         vip.setStruct(struct);
@@ -838,6 +861,27 @@ public class EipManagerImpl extends AbstractService implements EipManager, VipRe
                     });
                 }
 
+                flow(new NoRollbackFlow() {
+                    @Override
+                    public void run(FlowTrigger trigger, Map data) {
+                        ModifyVipAttributesStruct mstruct = new ModifyVipAttributesStruct();
+                        mstruct.setUseFor(EipConstant.EIP_NETWORK_SERVICE_TYPE);
+                        Vip vip = new Vip(struct.getVip().getUuid());
+                        vip.setStruct(mstruct);
+                        vip.release(new Completion(completion) {
+                            @Override
+                            public void success() {
+                                completion.success();
+                            }
+
+                            @Override
+                            public void fail(ErrorCode errorCode) {
+                                completion.fail(errorCode);
+                            }
+                        });
+                    }
+                });
+
                 done(new FlowDoneHandler(completion) {
                     @Override
                     public void handle(Map data) {
@@ -869,6 +913,7 @@ public class EipManagerImpl extends AbstractService implements EipManager, VipRe
     public void attachEip(final EipStruct struct, final String providerType, final Completion completion) {
         final EipInventory eip = struct.getEip();
         final VmNicInventory nic = struct.getNic();
+        final UsedIpInventory guestIp = struct.getGuestIp();
 
         FlowChain chain = FlowChainBuilder.newShareFlowChain();
         chain.setName(String.format("attach-eip-%s-vmNic-%s", eip.getUuid(), nic.getUuid()));
@@ -885,7 +930,7 @@ public class EipManagerImpl extends AbstractService implements EipManager, VipRe
                         ModifyVipAttributesStruct vipStruct = new ModifyVipAttributesStruct();
                         vipStruct.setUseFor(EipConstant.EIP_NETWORK_SERVICE_TYPE);
                         vipStruct.setServiceProvider(providerType);
-                        vipStruct.setPeerL3NetworkUuid(nic.getL3NetworkUuid());
+                        vipStruct.setPeerL3NetworkUuid(guestIp.getL3NetworkUuid());
                         Vip vip = new Vip(struct.getVip().getUuid());
                         vip.setStruct(vipStruct);
                         vip.acquire(new Completion(trigger) {
@@ -1013,7 +1058,19 @@ public class EipManagerImpl extends AbstractService implements EipManager, VipRe
             return;
         }
 
-        NetworkServiceProviderType providerType = nwServiceMgr.getTypeOfNetworkServiceProviderForService(nicInventory.getL3NetworkUuid(), EipConstant.EIP_TYPE);
+        UsedIpInventory guestIp = null;
+        for (UsedIpInventory ip : nicInventory.getUsedIps()) {
+            if (ip.getIp().equals(vo.getGuestIp())) {
+                guestIp = ip;
+            }
+        }
+        String peerL3;
+        if (guestIp == null) {
+            peerL3 = nicInventory.getL3NetworkUuid();
+        } else {
+            peerL3 = guestIp.getL3NetworkUuid();
+        }
+        NetworkServiceProviderType providerType = nwServiceMgr.getTypeOfNetworkServiceProviderForService(peerL3, EipConstant.EIP_TYPE);
         EipStruct struct = new EipStruct();
         struct.setVip(vip);
         struct.setNic(nicInventory);
@@ -1230,6 +1287,7 @@ public class EipManagerImpl extends AbstractService implements EipManager, VipRe
     public void vmIpChanged(VmInstanceInventory vm, VmNicInventory nic, UsedIpInventory oldIp, UsedIpInventory newIp) {
         SimpleQuery<EipVO> q = dbf.createQuery(EipVO.class);
         q.add(EipVO_.vmNicUuid, Op.EQ, nic.getUuid());
+        q.add(EipVO_.guestIp, Op.EQ, oldIp.getIp());
         EipVO eip = q.find();
 
         if (eip == null) {

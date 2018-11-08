@@ -6,7 +6,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.zstack.core.cloudbus.CloudBus;
 import org.zstack.core.db.*;
 import org.zstack.core.db.SimpleQuery.Op;
-import org.zstack.core.errorcode.ErrorFacade;
 import org.zstack.header.apimediator.ApiMessageInterceptionException;
 import org.zstack.header.apimediator.ApiMessageInterceptor;
 import org.zstack.header.apimediator.StopRoutingException;
@@ -30,6 +29,9 @@ import org.zstack.header.vm.*;
 import org.zstack.header.zone.ZoneState;
 import org.zstack.header.zone.ZoneVO;
 import org.zstack.header.zone.ZoneVO_;
+import org.zstack.utils.Utils;
+import org.zstack.utils.gson.JSONObjectUtil;
+import org.zstack.utils.logging.CLogger;
 import org.zstack.utils.network.IPv6Constants;
 import org.zstack.utils.network.IPv6NetworkUtils;
 import org.zstack.utils.network.NetworkUtils;
@@ -49,12 +51,11 @@ import static org.zstack.utils.CollectionDSL.list;
  * To change this template use File | Settings | File Templates.
  */
 public class VmInstanceApiInterceptor implements ApiMessageInterceptor {
+    private static final CLogger logger = Utils.getLogger(VmInstanceApiInterceptor.class);
     @Autowired
     private CloudBus bus;
     @Autowired
     private DatabaseFacade dbf;
-    @Autowired
-    private ErrorFacade errf;
 
     private void setServiceId(APIMessage msg) {
         if (msg instanceof VmInstanceMessage) {
@@ -713,7 +714,7 @@ public class VmInstanceApiInterceptor implements ApiMessageInterceptor {
             if (addressMode.equals(IPv6Constants.Stateful_DHCP)) {
                 for (UsedIpVO ipVO : vmNicVO.getUsedIps()) {
                     IpRangeVO rangeVO = dbf.findByUuid(ipVO.getIpRangeUuid(), IpRangeVO.class);
-                    if (rangeVO.equals(addressMode)) {
+                    if (rangeVO.getIpVersion() == IPv6Constants.IPv6 && rangeVO.getAddressMode().equals(addressMode)) {
                         throw new ApiMessageInterceptionException(argerr("there is another IPv6 stateful-dhcp network[uuid:%s] attached vmNic[uuid:%s]",
                                 ipVO.getL3NetworkUuid(), msg.getVmNicUuid()));
                     }
@@ -732,8 +733,8 @@ public class VmInstanceApiInterceptor implements ApiMessageInterceptor {
         /* all l3 network attached to same nic must be on same l2 network */
         L3NetworkVO oldL3 = dbf.findByUuid(vmNicVO.getL3NetworkUuid(), L3NetworkVO.class);
         if (!oldL3.getL2NetworkUuid().equals(l3Vo.getL2NetworkUuid())) {
-            throw new ApiMessageInterceptionException(argerr("l3Network is attached l2Network [uuid:%s] which is different from " +
-                            "nic l2Network [uuid:%s]", l3Vo.getL2NetworkUuid(), oldL3.getL2NetworkUuid()));
+            throw new ApiMessageInterceptionException(argerr("l2Network [uuid:%s] to be attached is different from " +
+                    "l2Network [uuid:%s] of the nic", l3Vo.getL2NetworkUuid(), oldL3.getL2NetworkUuid()));
         }
     }
 }
