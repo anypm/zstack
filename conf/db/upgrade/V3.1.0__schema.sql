@@ -198,7 +198,8 @@ CREATE TABLE `AutoScalingRuleAlarmTriggerVO` (
 ALTER TABLE `zstack`.`IpRangeEO` ADD COLUMN `ipVersion` int(10) unsigned DEFAULT 4;
 ALTER TABLE `zstack`.`IpRangeEO` ADD COLUMN `addressMode` varchar(64) DEFAULT NULL;
 ALTER TABLE `zstack`.`IpRangeEO` ADD COLUMN `prefixLen` int(10) unsigned DEFAULT NULL;
-ALTER VIEW `zstack`.`IpRangeVO` AS SELECT uuid, l3NetworkUuid, name, description, startIp, endIp, netmask, gateway, networkCidr, createDate, lastOpDate, ipVersion, addressMode, prefixLen FROM `zstack`.`IpRangeEO` WHERE deleted IS NULL;
+DROP VIEW IF EXISTS `zstack`.`IpRangeVO`;
+CREATE VIEW `zstack`.`IpRangeVO` AS SELECT uuid, l3NetworkUuid, name, description, startIp, endIp, netmask, gateway, networkCidr, createDate, lastOpDate, ipVersion, addressMode, prefixLen FROM `zstack`.`IpRangeEO` WHERE deleted IS NULL;
 
 ALTER TABLE `zstack`.`UsedIpVO` ADD COLUMN `ipVersion` int(10) unsigned DEFAULT 4;
 ALTER TABLE `zstack`.`UsedIpVO` ADD COLUMN `vmNicUuid` varchar(32) DEFAULT NULL;
@@ -206,7 +207,8 @@ ALTER TABLE `zstack`.`UsedIpVO` ADD CONSTRAINT fkUsedIpVOVmNicVO FOREIGN KEY (vm
 
 
 ALTER TABLE `zstack`.`L3NetworkEO` ADD COLUMN `ipVersion` int(10) unsigned DEFAULT 4;
-ALTER VIEW `zstack`.`L3NetworkVO` AS SELECT uuid, name, description, state, type, zoneUuid, l2NetworkUuid, system, dnsDomain, createDate, lastOpDate, category, ipVersion FROM `zstack`.`L3NetworkEO` WHERE deleted IS NULL;
+DROP VIEW IF EXISTS `zstack`.`L3NetworkVO`;
+CREATE VIEW `zstack`.`L3NetworkVO` AS SELECT uuid, name, description, state, type, zoneUuid, l2NetworkUuid, system, dnsDomain, createDate, lastOpDate, category, ipVersion FROM `zstack`.`L3NetworkEO` WHERE deleted IS NULL;
 
 ALTER TABLE `zstack`.`VmNicVO` ADD COLUMN `ipVersion` int(10) unsigned DEFAULT 4;
 
@@ -217,40 +219,111 @@ ALTER TABLE `zstack`.`VipVO` ADD COLUMN `prefixLen` int(10) unsigned DEFAULT NUL
 ALTER TABLE `zstack`.`LongJobVO`  ADD COLUMN `executeTime` int unsigned DEFAULT NULL;
 UPDATE `zstack`.`LongJobVO` job SET job.`executeTime` = TIMESTAMPDIFF(SECOND, job.createDate, job.lastOpDate);
 
-ALTER TABLE CephPrimaryStoragePoolVO ADD totalCapacity bigint(20) unsigned NOT NULL DEFAULT 0;
-
--- ----------------------------
---  for external baremetal pxe server
--- ----------------------------
-DELETE FROM `zstack`.`BaremetalPxeServerVO`;
-ALTER TABLE `zstack`.`BaremetalPxeServerVO` ADD COLUMN `zoneUuid` varchar(32) NOT NULL;
-ALTER TABLE `zstack`.`BaremetalPxeServerVO` ADD COLUMN `hostname` varchar(255) NOT NULL UNIQUE;
-ALTER TABLE `zstack`.`BaremetalPxeServerVO` ADD COLUMN `sshUsername` varchar(64) NOT NULL;
-ALTER TABLE `zstack`.`BaremetalPxeServerVO` ADD COLUMN `sshPassword` varchar(255) NOT NULL;
-ALTER TABLE `zstack`.`BaremetalPxeServerVO` ADD COLUMN `sshPort` int unsigned NOT NULL;
-ALTER TABLE `zstack`.`BaremetalPxeServerVO` ADD COLUMN `storagePath` varchar(2048) NOT NULL;
-ALTER TABLE `zstack`.`BaremetalPxeServerVO` ADD COLUMN `totalCapacity` bigint unsigned DEFAULT 0;
-ALTER TABLE `zstack`.`BaremetalPxeServerVO` ADD COLUMN `availableCapacity` bigint unsigned DEFAULT 0;
-ALTER TABLE `zstack`.`BaremetalPxeServerVO` ADD COLUMN `dhcpInterfaceAddress` varchar(32) DEFAULT NULL;
-ALTER TABLE `zstack`.`BaremetalPxeServerVO` ADD COLUMN `state` varchar(32) NOT NULL;
-ALTER TABLE `zstack`.`BaremetalPxeServerVO` DROP INDEX `dhcpInterface`;
-
-DELETE FROM `zstack`.`BaremetalImageCacheVO`;
-ALTER TABLE `zstack`.`BaremetalImageCacheVO` ADD COLUMN `pxeServerUuid` varchar(32) NOT NULL;
-ALTER TABLE `zstack`.`BaremetalImageCacheVO` ADD CONSTRAINT fkBaremetalImageCacheVOBaremetalPxeServerVO FOREIGN KEY (pxeServerUuid) REFERENCES BaremetalPxeServerVO (uuid) ON DELETE CASCADE;
-
-ALTER TABLE `zstack`.`BaremetalChassisVO` ADD COLUMN `pxeServerUuid` varchar(32) DEFAULT NULL;
-ALTER TABLE `zstack`.`BaremetalChassisVO` ADD CONSTRAINT fkBaremetalChassisVOBaremetalPxeServerVO FOREIGN KEY (pxeServerUuid) REFERENCES BaremetalPxeServerVO (uuid) ON DELETE SET NULL;
-ALTER TABLE `zstack`.`BaremetalInstanceVO` ADD COLUMN `pxeServerUuid` varchar(32) DEFAULT NULL;
-ALTER TABLE `zstack`.`BaremetalInstanceVO` ADD CONSTRAINT fkBaremetalInstanceVOBaremetalPxeServerVO FOREIGN KEY (pxeServerUuid) REFERENCES BaremetalPxeServerVO (uuid) ON DELETE SET NULL;
-
-CREATE TABLE  `zstack`.`BaremetalPxeServerClusterRefVO` (
-    `id` bigint unsigned NOT NULL UNIQUE AUTO_INCREMENT,
-    `clusterUuid` varchar(32) NOT NULL,
-    `pxeServerUuid` varchar(32) NOT NULL,
+CREATE TABLE `ScsiLunVO` (
+    `name` VARCHAR(256) DEFAULT NULL,
+    `uuid` VARCHAR(32) NOT NULL,
+    `wwid` VARCHAR(256) NOT NULL,
+    `vendor` VARCHAR(256) DEFAULT NULL,
+    `model` VARCHAR(256) DEFAULT NULL,
+    `wwn` VARCHAR(256) DEFAULT NULL,
+    `serial` VARCHAR(256) DEFAULT NULL,
+    `hctl` VARCHAR(64) DEFAULT NULL,
+    `type` VARCHAR(128) NOT NULL,
+    `path` VARCHAR(128) DEFAULT NULL,
+    `source` VARCHAR(128) DEFAULT NULL,
+    `size` bigint unsigned NOT NULL,
+    `state` VARCHAR(64) DEFAULT NULL,
+    `multipathDeviceUuid` VARCHAR(32) DEFAULT NULL,
     `lastOpDate` timestamp ON UPDATE CURRENT_TIMESTAMP,
-    `createDate` timestamp,
-    PRIMARY KEY  (`id`),
-    CONSTRAINT fkBaremetalPxeServerClusterRefVOClusterEO FOREIGN KEY (clusterUuid) REFERENCES ClusterEO (uuid) ON DELETE CASCADE,
-    CONSTRAINT fkBaremetalPxeServerClusterRefVOBaremetalPxeServerVO FOREIGN KEY (pxeServerUuid) REFERENCES BaremetalPxeServerVO (uuid) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+    `createDate` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+    PRIMARY KEY (`uuid`)
+)  ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `ScsiLunHostRefVO` (
+    `id` bigint unsigned NOT NULL UNIQUE AUTO_INCREMENT,
+    `hostUuid` varchar(32) NOT NULL,
+    `scsiLunUuid` varchar(32) NOT NULL,
+    `lastOpDate` timestamp ON UPDATE CURRENT_TIMESTAMP,
+    `createDate` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+    PRIMARY KEY (`id`),
+    CONSTRAINT `fkScsiLunHostRefVOScsiLunVO` FOREIGN KEY (`scsiLunUuid`) REFERENCES ScsiLunVO (`uuid`),
+    CONSTRAINT `fkScsiLunHostRefVOHostVO` FOREIGN KEY (`hostUuid`) REFERENCES HostEO (`uuid`) ON DELETE CASCADE
+)  ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `ScsiLunVmInstanceRefVO` (
+    `id` bigint unsigned NOT NULL UNIQUE AUTO_INCREMENT,
+    `vmInstanceUuid` varchar(32) NOT NULL,
+    `scsiLunUuid` varchar(32) NOT NULL,
+    `deviceId` int unsigned DEFAULT NULL,
+    `attachMultipath` boolean NOT NULL DEFAULT TRUE,
+    `lastOpDate` timestamp ON UPDATE CURRENT_TIMESTAMP,
+    `createDate` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+    PRIMARY KEY (`id`),
+    CONSTRAINT `fkScsiLunVmInstanceRefVOScsiLunVO` FOREIGN KEY (`scsiLunUuid`) REFERENCES ScsiLunVO (`uuid`),
+    CONSTRAINT `fkScsiLunVmInstanceRefVOVmInstanceVO` FOREIGN KEY (`vmInstanceUuid`) REFERENCES VmInstanceEO (`uuid`) ON DELETE CASCADE
+)  ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `FiberChannelStorageVO` (
+    `name` VARCHAR(256) DEFAULT NULL,
+    `uuid` VARCHAR(32) NOT NULL,
+    `wwnn` VARCHAR(256) NOT NULL,
+    `state` VARCHAR(64) DEFAULT NULL,
+    `lastOpDate` timestamp ON UPDATE CURRENT_TIMESTAMP,
+    `createDate` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+    PRIMARY KEY (`uuid`)
+)  ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `FiberChannelLunVO` (
+    `uuid` VARCHAR(32) NOT NULL,
+    `fiberChannelStorageUuid` VARCHAR(32) NOT NULL,
+    PRIMARY KEY (`uuid`),
+    CONSTRAINT `fkFiberChannelLunVOFiberChannelStorageVO` FOREIGN KEY (`fiberChannelStorageUuid`) REFERENCES FiberChannelStorageVO (`uuid`)
+)  ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+DROP PROCEDURE IF EXISTS migrateIscsiLunVOToScsiLunVO;
+DELIMITER $$
+CREATE PROCEDURE migrateIscsiLunVOToScsiLunVO()
+    BEGIN
+        DECLARE done INT DEFAULT FALSE;
+        DECLARE name VARCHAR(256);
+        DECLARE uuid VARCHAR(32);
+        DECLARE wwid VARCHAR(256);
+        DECLARE vendor VARCHAR(256);
+        DECLARE model VARCHAR(256);
+        DECLARE wwn VARCHAR(256);
+        DECLARE serial VARCHAR(256);
+        DECLARE hctl VARCHAR(64);
+        DECLARE type VARCHAR(128);
+        DECLARE path VARCHAR(128);
+        DECLARE source VARCHAR(128);
+        DECLARE size bigint unsigned;
+        DECLARE state VARCHAR(64);
+        DECLARE multipathDeviceUuid VARCHAR(32);
+        DECLARE lastOpDate timestamp;
+        DECLARE createDate timestamp;
+        DECLARE cur CURSOR FOR SELECT i.uuid, i.wwid, i.vendor, i.model, i.wwn, i.serial, i.hctl, i.type, i.path, i.size, i.multipathDeviceUuid, i.lastOpDate, i.createDate FROM zstack.IscsiLunVO i;
+        DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+        OPEN cur;
+        read_loop: LOOP
+            FETCH cur INTO uuid, wwid, vendor, model, wwn, serial, hctl, type, path, size, multipathDeviceUuid, lastOpDate, createDate;
+            IF done THEN
+                LEAVE read_loop;
+            END IF;
+
+            set name = concat('iscsi-lun-', wwid);
+            set source = 'iSCSI';
+            set state = 'Enabled';
+
+            INSERT INTO zstack.ScsiLunVO (name, uuid, wwid, vendor, model, wwn, serial, hctl, type, path, source, state, multipathDeviceUuid, size, lastOpDate, createDate)
+            values (name, uuid, wwid, vendor, model, wwn, serial, hctl, type, path, source, state, multipathDeviceUuid, size, lastOpDate, createDate);
+
+        end loop;
+        close cur;
+        select curtime();
+    end $$
+DELIMITER ;
+
+call migrateIscsiLunVOToScsiLunVO();
+alter table IscsiLunVO drop column wwid, drop vendor, drop model, drop wwn, drop serial, drop hctl, drop type, drop path, drop multipathDeviceUuid, drop size, drop lastOpDate, drop createDate;
+
+update SystemTagVO a, VolumeVO b set a.resourceType='VolumeVO' where a.resourceType='InstanceOfferingVO' and a.resourceUuid=b.uuid;

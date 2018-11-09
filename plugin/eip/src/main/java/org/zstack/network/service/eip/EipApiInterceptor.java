@@ -18,6 +18,7 @@ import org.zstack.header.message.APIMessage;
 import org.zstack.header.network.l3.IpRangeVO;
 import org.zstack.header.network.l3.UsedIpVO;
 import org.zstack.header.vm.VmInstanceState;
+import org.zstack.header.vm.VmNicHelper;
 import org.zstack.header.vm.VmNicVO;
 import org.zstack.header.vm.VmNicVO_;
 import org.zstack.network.service.vip.Vip;
@@ -144,7 +145,7 @@ public class EipApiInterceptor implements ApiMessageInterceptor {
         }.call();
 
         VmNicVO nic = dbf.findByUuid(msg.getVmNicUuid(), VmNicVO.class);
-        if (nic.getL3NetworkUuid().equals(vip.getL3NetworkUuid())) {
+        if (VmNicHelper.getL3Uuids(nic).contains(vip.getL3NetworkUuid())){
             throw new ApiMessageInterceptionException(argerr("guest l3Network of vm nic[uuid:%s] and vip l3Network of EIP[uuid:%s] are the same network",
                             msg.getVmNicUuid(), msg.getEipUuid()));
         }
@@ -205,13 +206,13 @@ public class EipApiInterceptor implements ApiMessageInterceptor {
         if (vipIp.getIpVersion() == IPv6Constants.IPv4) {
             SubnetUtils guestSub = new SubnetUtils(guestRange.getGateway(), guestRange.getNetmask());
             if (guestSub.getInfo().isInRange(vipIp.getIp())) {
-                throw new ApiMessageInterceptionException(operr("overlap public and private subnets. The subnet of is an overlap with the subnet[%s, %s]" +
-                        " of the VM nic ip range[%s, %s].", vipRange.getStartIp(), vipRange.getEndIp(), guestRange.getStartIp(), guestRange.getEndIp()));
+                throw new ApiMessageInterceptionException(operr("Vip[%s] is in the guest ip range [%s, %s]",
+                        vipIp.getIp(), guestRange.getStartIp(), guestRange.getEndIp()));
             }
         } else {
             if (IPv6NetworkUtils.isIpv6InCidrRange(vipIp.getIp(), guestRange.getNetworkCidr())){
-                throw new ApiMessageInterceptionException(operr("overlap public and private subnets. The subnet of is an overlap with the subnet[%s]" +
-                        " of the VM nic ip range[%s].", vipRange.getNetworkCidr(), guestRange.getNetworkCidr()));
+                throw new ApiMessageInterceptionException(operr("Vip[%s] is in the guest ip range [%s, %s]",
+                        vipIp.getIp(), guestRange.getStartIp(), guestRange.getEndIp()));
             }
         }
     }
@@ -247,7 +248,7 @@ public class EipApiInterceptor implements ApiMessageInterceptor {
             SimpleQuery<VmNicVO> nicq = dbf.createQuery(VmNicVO.class);
             nicq.add(VmNicVO_.uuid, Op.EQ, msg.getVmNicUuid());
             VmNicVO nic = nicq.find();
-            if (nic.getL3NetworkUuid().equals(vip.getL3NetworkUuid())) {
+            if (VmNicHelper.getL3Uuids(nic).contains(vip.getL3NetworkUuid())) {
                 throw new ApiMessageInterceptionException(argerr("guest l3Network of vm nic[uuid:%s] and vip l3Network of vip[uuid: %s] are the same network", msg.getVmNicUuid(), msg.getVipUuid()));
             }
 

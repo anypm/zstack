@@ -185,8 +185,7 @@ public class PrimaryStorageManagerImpl extends AbstractService implements Primar
 
     private void handle(APIGetPrimaryStorageTypesMsg msg) {
         APIGetPrimaryStorageTypesReply reply = new APIGetPrimaryStorageTypesReply();
-        List<String> ret = new ArrayList<>();
-        ret.addAll(PrimaryStorageType.getAllTypeNames());
+        List<String> ret = new ArrayList<>(PrimaryStorageType.getAllTypeNames());
         reply.setPrimaryStorageTypes(ret);
         bus.reply(msg, reply);
     }
@@ -555,20 +554,21 @@ public class PrimaryStorageManagerImpl extends AbstractService implements Primar
 
     @Override
     public void nodeJoin(ManagementNodeInventory inv) {
-        logger.debug(String.format("management node[uuid:%s] join, node[uuid:%s] starts taking over primary storage...",
-                inv.getUuid(), Platform.getManagementServerId()));
-        loadPrimaryStorage();
     }
 
     @Override
     public void nodeLeft(ManagementNodeInventory inv) {
-
+        logger.debug(String.format("management node[uuid:%s] left, node[uuid:%s] starts taking over primary storage...",
+                inv.getUuid(), Platform.getManagementServerId()));
+        loadPrimaryStorage();
     }
 
     private List<String> getPrimaryStorageManagedByUs() {
         List<String> ret = new ArrayList<>();
         SimpleQuery<PrimaryStorageVO> q = dbf.createQuery(PrimaryStorageVO.class);
         q.select(PrimaryStorageVO_.uuid);
+        // treat connecting as disconnected
+        q.add(PrimaryStorageVO_.status, Op.NOT_EQ, PrimaryStorageStatus.Connected);
         List<String> uuids = q.listValue();
         for (String uuid : uuids) {
             if (destMaker.isManagedByUs(uuid)) {

@@ -5,6 +5,7 @@ import org.zstack.kvm.KVMAgentCommands
 import org.zstack.kvm.KVMSecurityGroupBackend
 import org.zstack.network.securitygroup.APIAddSecurityGroupRuleMsg
 import org.zstack.network.securitygroup.RuleTO
+import org.zstack.network.securitygroup.SecurityGroupMembersTO
 import org.zstack.network.securitygroup.SecurityGroupRuleProtocolType
 import org.zstack.network.securitygroup.SecurityGroupRuleTO
 import org.zstack.network.securitygroup.SecurityGroupRuleType
@@ -46,8 +47,10 @@ class IPv6SecurityGroupCase extends SubCase {
         env.create {
             testSecurityGroupValidator()
             testApplySecurityGroup()
+            testDetachL3NetworkFromSecurityGroup()
             testSecurityGroupApplyNetworkServices()
             testChangeSecurityGroupRules()
+            testDeleteSecurityGroup()
         }
     }
 
@@ -137,7 +140,7 @@ class IPv6SecurityGroupCase extends SubCase {
         HostInventory host = env.inventoryByName("kvm-1")
 
         VmInstanceInventory vm = createVmInstance {
-            name = "vm-eip"
+            name = "vm-sg"
             instanceOfferingUuid = offering.uuid
             imageUuid = image.uuid
             l3NetworkUuids = asList(l3_statefull.uuid)
@@ -164,13 +167,173 @@ class IPv6SecurityGroupCase extends SubCase {
             securityGroupUuid = sg6.uuid
             vmNicUuids = [nic.uuid]
         }
+
+        KVMAgentCommands.ApplySecurityGroupRuleCmd cmd = null
+        env.afterSimulator(KVMSecurityGroupBackend.SECURITY_GROUP_APPLY_RULE_PATH) { rsp, HttpEntity<String> e ->
+            cmd = JSONObjectUtil.toObject(e.body, KVMAgentCommands.ApplySecurityGroupRuleCmd.class)
+            return rsp
+        }
+
+        changeSecurityGroupState {
+            uuid = sg4.uuid
+            stateEvent = "disable"
+        }
+
+        retryInSecs {
+            assert cmd != null
+            assert cmd.ipv6RuleTOs.size() == 1
+            SecurityGroupRuleTO rule6 = cmd.ipv6RuleTOs.get(0)
+            assert rule6.actionCode == SecurityGroupRuleTO.ACTION_CODE_APPLY_RULE
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule4 = cmd.ruleTOs.get(0)
+            assert rule4.actionCode == SecurityGroupRuleTO.ACTION_CODE_DELETE_CHAIN
+        }
+
+        cmd == null
+        changeSecurityGroupState {
+            uuid = sg4.uuid
+            stateEvent = "enable"
+        }
+        retryInSecs {
+            assert cmd != null
+            assert cmd.ipv6RuleTOs.size() == 1
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule6 = cmd.ipv6RuleTOs.get(0)
+            assert rule6.actionCode == SecurityGroupRuleTO.ACTION_CODE_APPLY_RULE
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule4 = cmd.ruleTOs.get(0)
+            assert rule4.actionCode == SecurityGroupRuleTO.ACTION_CODE_APPLY_RULE
+        }
+
+        cmd == null
+        changeSecurityGroupState {
+            uuid = sg6.uuid
+            stateEvent = "disable"
+        }
+        retryInSecs {
+            assert cmd != null
+            assert cmd.ipv6RuleTOs.size() == 1
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule6 = cmd.ipv6RuleTOs.get(0)
+            assert rule6.actionCode == SecurityGroupRuleTO.ACTION_CODE_DELETE_CHAIN
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule4 = cmd.ruleTOs.get(0)
+            assert rule4.actionCode == SecurityGroupRuleTO.ACTION_CODE_APPLY_RULE
+        }
+
+        cmd == null
+        changeSecurityGroupState {
+            uuid = sg6.uuid
+            stateEvent = "enable"
+        }
+        retryInSecs {
+            assert cmd != null
+            assert cmd.ipv6RuleTOs.size() == 1
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule6 = cmd.ipv6RuleTOs.get(0)
+            assert rule6.actionCode == SecurityGroupRuleTO.ACTION_CODE_APPLY_RULE
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule4 = cmd.ruleTOs.get(0)
+            assert rule4.actionCode == SecurityGroupRuleTO.ACTION_CODE_APPLY_RULE
+        }
+    }
+
+    void testDetachL3NetworkFromSecurityGroup() {
+        L3NetworkInventory l3_statefull = env.inventoryByName("l3-Statefull-DHCP")
+        L3NetworkInventory l3 = env.inventoryByName("l3")
+
+        SecurityGroupInventory sg4 = querySecurityGroup {
+            conditions=["name=SecurityGroup4"]
+        }[0]
+        SecurityGroupInventory sg6 = querySecurityGroup {
+            conditions=["name=SecurityGroup6"]
+        }[0]
+        VmInstanceInventory vm = queryVmInstance {conditions=["name=vm-sg"]}[0]
+        VmNicInventory nic = vm.getVmNics()[0]
+
+        KVMAgentCommands.ApplySecurityGroupRuleCmd cmd = null
+        env.afterSimulator(KVMSecurityGroupBackend.SECURITY_GROUP_APPLY_RULE_PATH) { rsp, HttpEntity<String> e ->
+            cmd = JSONObjectUtil.toObject(e.body, KVMAgentCommands.ApplySecurityGroupRuleCmd.class)
+            return rsp
+        }
+
+        detachSecurityGroupFromL3Network {
+            l3NetworkUuid = l3.uuid
+            securityGroupUuid = sg4.uuid
+        }
+
+        retryInSecs {
+            assert cmd != null
+            assert cmd.ipv6RuleTOs.size() == 1
+            SecurityGroupRuleTO rule6 = cmd.ipv6RuleTOs.get(0)
+            assert rule6.actionCode == SecurityGroupRuleTO.ACTION_CODE_APPLY_RULE
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule4 = cmd.ruleTOs.get(0)
+            assert rule4.actionCode == SecurityGroupRuleTO.ACTION_CODE_DELETE_CHAIN
+        }
+
+        cmd == null
+        attachSecurityGroupToL3Network {
+            securityGroupUuid = sg4.uuid
+            l3NetworkUuid = l3.uuid
+        }
+        addVmNicToSecurityGroup {
+            securityGroupUuid = sg4.uuid
+            vmNicUuids = [nic.uuid]
+        }
+        retryInSecs {
+            assert cmd != null
+            assert cmd.ipv6RuleTOs.size() == 1
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule6 = cmd.ipv6RuleTOs.get(0)
+            assert rule6.actionCode == SecurityGroupRuleTO.ACTION_CODE_APPLY_RULE
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule4 = cmd.ruleTOs.get(0)
+            assert rule4.actionCode == SecurityGroupRuleTO.ACTION_CODE_APPLY_RULE
+        }
+
+        cmd == null
+        detachSecurityGroupFromL3Network {
+            l3NetworkUuid = l3_statefull.uuid
+            securityGroupUuid = sg6.uuid
+        }
+        retryInSecs {
+            assert cmd != null
+            assert cmd.ipv6RuleTOs.size() == 1
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule6 = cmd.ipv6RuleTOs.get(0)
+            assert rule6.actionCode == SecurityGroupRuleTO.ACTION_CODE_DELETE_CHAIN
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule4 = cmd.ruleTOs.get(0)
+            assert rule4.actionCode == SecurityGroupRuleTO.ACTION_CODE_APPLY_RULE
+        }
+
+        cmd == null
+        attachSecurityGroupToL3Network {
+            securityGroupUuid = sg6.uuid
+            l3NetworkUuid = l3_statefull.uuid
+        }
+        addVmNicToSecurityGroup {
+            securityGroupUuid = sg6.uuid
+            vmNicUuids = [nic.uuid]
+        }
+        retryInSecs {
+            assert cmd != null
+            assert cmd.ipv6RuleTOs.size() == 1
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule6 = cmd.ipv6RuleTOs.get(0)
+            assert rule6.actionCode == SecurityGroupRuleTO.ACTION_CODE_APPLY_RULE
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule4 = cmd.ruleTOs.get(0)
+            assert rule4.actionCode == SecurityGroupRuleTO.ACTION_CODE_APPLY_RULE
+        }
     }
 
     void testSecurityGroupApplyNetworkServices() {
         HostInventory host = env.inventoryByName("kvm-1")
 
         VmInstanceInventory vm = queryVmInstance {
-            conditions = ["name=vm-eip"]
+            conditions = ["name=vm-sg"]
         }[0]
         VmNicInventory nic = vm.getVmNics()[0]
 
@@ -283,7 +446,7 @@ class IPv6SecurityGroupCase extends SubCase {
         L3NetworkInventory l3 = env.inventoryByName("l3")
 
         VmInstanceInventory vm = queryVmInstance {
-            conditions = ["name=vm-eip"]
+            conditions = ["name=vm-sg"]
         }[0]
         VmNicInventory nic = vm.getVmNics()[0]
         SecurityGroupInventory sg4 = querySecurityGroup {
@@ -355,6 +518,32 @@ class IPv6SecurityGroupCase extends SubCase {
         rule1 = rules.stream().filter{r -> r.protocol == SecurityGroupRuleProtocolType.TCP.toString()}.collect(Collectors.toList()).get(0)
         deleteSecurityGroupRule {
             ruleUuids = asList(rule1.uuid)
+        }
+    }
+
+    void testDeleteSecurityGroup() {
+        SecurityGroupInventory sg4 = querySecurityGroup {
+            conditions = ["name=SecurityGroup4"]
+        }[0]
+
+        KVMAgentCommands.ApplySecurityGroupRuleCmd cmd = null
+        env.afterSimulator(KVMSecurityGroupBackend.SECURITY_GROUP_APPLY_RULE_PATH) { rsp, HttpEntity<String> e ->
+            cmd = JSONObjectUtil.toObject(e.body, KVMAgentCommands.ApplySecurityGroupRuleCmd.class)
+            return rsp
+        }
+
+        deleteSecurityGroup {
+            uuid = sg4.uuid
+        }
+
+        retryInSecs {
+            assert cmd != null
+            assert cmd.ipv6RuleTOs.size() == 1
+            SecurityGroupRuleTO rule6 = cmd.ipv6RuleTOs.get(0)
+            assert rule6.actionCode == SecurityGroupRuleTO.ACTION_CODE_APPLY_RULE
+            assert cmd.ruleTOs.size() == 1
+            SecurityGroupRuleTO rule4 = cmd.ruleTOs.get(0)
+            assert rule4.actionCode == SecurityGroupRuleTO.ACTION_CODE_DELETE_CHAIN
         }
     }
 }
