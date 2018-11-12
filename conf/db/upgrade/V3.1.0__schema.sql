@@ -45,3 +45,4 @@ CREATE TABLE IF NOT EXISTS `OssBucketDomainVO` (
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 ALTER TABLE DataCenterVO ADD COLUMN `endpoint` VARCHAR(127) DEFAULT NULL;
+UPDATE GlobalConfigVO SET category='aliyunNas' WHERE category ='aliyunNasPrimaryStorage';
